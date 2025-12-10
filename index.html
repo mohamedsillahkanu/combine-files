@@ -1,4 +1,4 @@
-<!DOCTYPE html>                
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -382,6 +382,16 @@
             font-weight: 500;
         }
 
+        .info-message {
+            background: #e7f3ff;
+            color: #004080;
+            padding: 1rem;
+            border-radius: 6px;
+            border: 2px solid #004080;
+            margin: 1rem 0;
+            font-weight: 500;
+        }
+
         .expandable {
             border: 2px solid #004080;
             border-radius: 6px;
@@ -584,7 +594,7 @@
             <p class="tagline"><em>Driving Data-Driven Solutions for Health and Development</em></p>
             <h1>FILE COMBINER TOOL</h1>
             <p class="subtitle">Combine Multiple XLS, XLSX, and CSV Files</p>
-            <p class="subtitle" style="font-size: 11px; margin-top: 5px;">All Columns Preserved • Data Cleaned Automatically</p>
+            <p class="subtitle" style="font-size: 11px; margin-top: 5px;">All Columns Preserved • Data Cleaned Automatically • All Leading Blank Rows Removed</p>
         </div>
 
         <div class="content-card">
@@ -594,6 +604,7 @@
                 <div class="upload-section">
                     <h3>UPLOAD MULTIPLE FILES</h3>
                     <p>Upload multiple XLS, XLSX, and CSV files to combine them with ALL columns preserved</p>
+                    <p style="font-size: 12px; color: #666; margin-top: 0.5rem;">✓ Automatically removes all leading blank rows before column headers</p>
                     <input type="file" id="fileInput" class="file-input" multiple accept=".csv,.xlsx,.xls">
                     <div style="margin-top: 1rem;">
                         <button id="processBtn" class="btn btn-primary" disabled>PROCESS FILES</button>
@@ -630,6 +641,7 @@
                     <div id="combinationSummary"></div>
                     <div style="text-align: center; margin-top: 1.5rem;">
                         <button id="downloadBtn" class="btn btn-gold">DOWNLOAD AS CSV</button>
+                        <button id="downloadExcelBtn" class="btn btn-primary">DOWNLOAD AS EXCEL</button>
                     </div>
                 </div>
 
@@ -644,21 +656,21 @@
                         <div class="feature-card">
                             <h3>Enhanced Combination Logic</h3>
                             <ul>
-                                <li>Data Cleaning: Removes empty rows and unnamed columns</li>
-                                <li>All Columns Preserved: Combines common + uncommon</li>
-                                <li>By File Type: Files grouped by type (CSV, Excel)</li>
-                                <li>Source Tracking: 'source_file' column tracks origins</li>
-                                <li>Missing Data: Empty values for missing columns</li>
+                                <li>Removes ALL leading blank rows</li>
+                                <li>All Columns Preserved: Common + uncommon</li>
+                                <li>By File Type: Files grouped by type</li>
+                                <li>Source Tracking: 'source_file' column</li>
+                                <li>Missing Data: Left empty as-is</li>
                             </ul>
                         </div>
                         <div class="feature-card">
                             <h3>Data Cleaning Features</h3>
                             <ul>
-                                <li>Removes rows where first column is empty</li>
-                                <li>Removes "Unnamed" columns automatically</li>
+                                <li>Removes all leading blank rows (1, 5, 10+)</li>
+                                <li>Auto-detects actual header row</li>
+                                <li>Removes "Unnamed" columns</li>
                                 <li>Removes completely empty rows</li>
                                 <li>Preserves all meaningful data</li>
-                                <li>Clear source file tracking</li>
                             </ul>
                         </div>
                     </div>
@@ -667,8 +679,8 @@
                         <div class="feature-card">
                             <h3>Enhanced Processing</h3>
                             <ul>
-                                <li>Automatic data cleaning</li>
-                                <li>Preserve ALL columns (common + unique)</li>
+                                <li>Skips any number of blank rows</li>
+                                <li>Preserve ALL columns</li>
                                 <li>Remove empty/unnamed data</li>
                                 <li>Smart column alignment</li>
                                 <li>Detailed progress reporting</li>
@@ -681,7 +693,7 @@
                                 <li>Clean, organized output</li>
                                 <li>Comprehensive column analysis</li>
                                 <li>Statistics without data display</li>
-                                <li>CSV download option</li>
+                                <li>Download as CSV or Excel</li>
                             </ul>
                         </div>
                     </div>
@@ -704,6 +716,7 @@
                 this.filesData = [];
                 this.combinedData = null;
                 this.combinationLog = [];
+                this.columnOrder = {};
                 this.initializeEventListeners();
             }
 
@@ -713,6 +726,7 @@
                 document.getElementById('combineBtn').addEventListener('click', this.combineFiles.bind(this));
                 document.getElementById('resetBtn').addEventListener('click', this.resetApplication.bind(this));
                 document.getElementById('downloadBtn').addEventListener('click', this.downloadCombinedData.bind(this));
+                document.getElementById('downloadExcelBtn').addEventListener('click', this.downloadAsExcel.bind(this));
             }
 
             handleFileSelection(event) {
@@ -756,6 +770,76 @@
                 }
             }
 
+            // Check if a row is blank (all cells empty or whitespace)
+            isRowBlank(row) {
+                if (!row || typeof row !== 'object') return true;
+                
+                // For array rows
+                if (Array.isArray(row)) {
+                    return row.every(cell => 
+                        cell === null || 
+                        cell === undefined || 
+                        String(cell).trim() === ''
+                    );
+                }
+                
+                // For object rows
+                const values = Object.values(row);
+                if (values.length === 0) return true;
+                
+                return values.every(cell => 
+                    cell === null || 
+                    cell === undefined || 
+                    String(cell).trim() === ''
+                );
+            }
+
+            // Find the first non-blank row index (the actual header row)
+            findHeaderRowIndex(rawData) {
+                for (let i = 0; i < rawData.length; i++) {
+                    if (!this.isRowBlank(rawData[i])) {
+                        return i;
+                    }
+                }
+                return 0; // Default to first row if all blank
+            }
+
+            // Convert raw array data to objects using specified header row
+            convertToObjectsWithHeader(rawData, headerRowIndex) {
+                if (!rawData || rawData.length === 0) return [];
+                if (rawData.length <= headerRowIndex) return [];
+                
+                const headerRow = rawData[headerRowIndex];
+                if (!headerRow || !Array.isArray(headerRow)) return [];
+                
+                // Build clean headers array
+                const headers = headerRow.map((h, idx) => {
+                    const cleanHeader = String(h || '').trim();
+                    // If header is empty or unnamed, skip it
+                    if (!cleanHeader || cleanHeader.toLowerCase().startsWith('unnamed') || cleanHeader.match(/^__EMPTY/)) {
+                        return null;
+                    }
+                    return cleanHeader;
+                });
+                
+                // Get data rows (everything after header row)
+                const dataRows = rawData.slice(headerRowIndex + 1);
+                
+                // Convert each data row to an object
+                return dataRows.map(row => {
+                    if (!row || !Array.isArray(row)) return {};
+                    
+                    const obj = {};
+                    headers.forEach((header, index) => {
+                        if (header !== null) {
+                            // Keep the original value - don't convert
+                            obj[header] = row[index];
+                        }
+                    });
+                    return obj;
+                }).filter(obj => Object.keys(obj).length > 0);
+            }
+
             async readFile(file) {
                 return new Promise((resolve, reject) => {
                     const fileExtension = file.name.toLowerCase().split('.').pop();
@@ -763,27 +847,43 @@
 
                     reader.onload = (e) => {
                         try {
-                            let data, fileType;
+                            let rawData, fileType, blankRowsRemoved = 0;
 
                             if (fileExtension === 'csv') {
                                 const csvText = e.target.result;
-                                const parsed = Papa.parse(csvText, {
-                                    header: true,
-                                    skipEmptyLines: true,
+                                
+                                // Always parse without headers first to detect blank rows
+                                const rawParsed = Papa.parse(csvText, {
+                                    header: false,
+                                    skipEmptyLines: false,
                                     dynamicTyping: true
                                 });
-                                data = parsed.data;
+                                
+                                rawData = rawParsed.data;
                                 fileType = 'CSV';
                             } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
                                 const workbook = XLSX.read(e.target.result, { type: 'array' });
                                 const firstSheetName = workbook.SheetNames[0];
                                 const worksheet = workbook.Sheets[firstSheetName];
-                                data = XLSX.utils.sheet_to_json(worksheet);
+                                
+                                // Always read as array of arrays first
+                                rawData = XLSX.utils.sheet_to_json(worksheet, { 
+                                    header: 1,
+                                    defval: ''
+                                });
+                                
                                 fileType = 'Excel';
                             } else {
                                 reject(new Error(`Unsupported file type: ${fileExtension}`));
                                 return;
                             }
+
+                            // Find the first non-blank row (the actual header row)
+                            const headerRowIndex = this.findHeaderRowIndex(rawData);
+                            blankRowsRemoved = headerRowIndex;
+                            
+                            // Always convert using the detected header row
+                            const data = this.convertToObjectsWithHeader(rawData, headerRowIndex);
 
                             const cleanedData = this.cleanData(data, file.name);
                             
@@ -791,8 +891,9 @@
                                 name: file.name,
                                 type: fileType,
                                 data: cleanedData,
-                                originalSize: data.length,
+                                originalSize: data.length + blankRowsRemoved,
                                 cleanedSize: cleanedData.length,
+                                blankRowsRemoved: blankRowsRemoved,
                                 columns: Object.keys(cleanedData[0] || {})
                             });
                         } catch (error) {
@@ -825,7 +926,8 @@
                     Object.keys(row).forEach(key => {
                         const cleanKey = String(key).trim();
                         if (!cleanKey.toLowerCase().startsWith('unnamed') && 
-                            cleanKey !== 'null' && cleanKey !== '') {
+                            cleanKey !== 'null' && cleanKey !== '' &&
+                            !cleanKey.match(/^__EMPTY/)) {
                             cleanRow[cleanKey] = row[key];
                         }
                     });
@@ -851,6 +953,7 @@
                 const csvCount = this.filesData.filter(f => f.type === 'CSV').length;
                 const excelCount = this.filesData.filter(f => f.type === 'Excel').length;
                 const totalRows = this.filesData.reduce((sum, f) => sum + f.cleanedSize, 0);
+                const totalBlankRowsRemoved = this.filesData.reduce((sum, f) => sum + (f.blankRowsRemoved || 0), 0);
 
                 statsGrid.innerHTML = `
                     <div class="stats-card">
@@ -871,21 +974,37 @@
                     </div>
                 `;
 
-                let fileDetailsHTML = '<div class="section-header" style="margin-top: 1.5rem;"><span class="section-icon">📁</span><span class="section-title">INDIVIDUAL FILE DETAILS</span></div>';
+                // Show info about blank rows removed if any
+                let blankRowsInfo = '';
+                if (totalBlankRowsRemoved > 0) {
+                    blankRowsInfo = `
+                        <div class="info-message">
+                            <strong>🧹 Leading Blank Rows Removed:</strong> Deleted ${totalBlankRowsRemoved} leading blank row(s) across all files before detecting column headers.
+                        </div>
+                    `;
+                }
+
+                let fileDetailsHTML = blankRowsInfo + '<div class="section-header" style="margin-top: 1.5rem;"><span class="section-icon">📁</span><span class="section-title">INDIVIDUAL FILE DETAILS</span></div>';
                 this.filesData.forEach((file, index) => {
                     const badgeClass = file.type === 'CSV' ? 'csv' : 'excel';
+                    const blankRowNote = file.blankRowsRemoved > 0 
+                        ? `<br><span style="color: #28a745; font-size: 12px;">✓ Deleted ${file.blankRowsRemoved} leading blank row(s)</span>` 
+                        : '';
+                    
                     fileDetailsHTML += `
                         <div class="expandable" id="file-${index}">
                             <div class="expandable-header" onclick="this.parentElement.classList.toggle('open')">
                                 <div>
                                     <span class="file-type-badge ${badgeClass}">${file.type}</span>
                                     <strong>${file.name}</strong> (${file.cleanedSize} rows × ${file.columns.length} columns)
+                                    ${blankRowNote}
                                 </div>
                                 <span class="expandable-toggle">▼</span>
                             </div>
                             <div class="expandable-content">
                                 <div class="file-card">
                                     <p><small>Original: ${file.originalSize} rows → Cleaned: ${file.cleanedSize} rows</small></p>
+                                    ${file.blankRowsRemoved > 0 ? `<p><small style="color: #28a745;">Leading blank rows deleted: ${file.blankRowsRemoved}</small></p>` : ''}
                                     <p><strong style="color: #004080;">All Columns:</strong></p>
                                     <div class="column-list">${file.columns.join(', ')}</div>
                                 </div>
@@ -947,50 +1066,63 @@
                     const filesByType = this.groupFilesByType();
                     this.combinedData = {};
                     this.combinationLog = [];
+                    this.columnOrder = {}; // Store column order for each file type
 
                     Object.entries(filesByType).forEach(([fileType, files]) => {
-                        if (files.length === 1) {
-                            const combinedData = files[0].data.map(row => ({
-                                ...row,
-                                source_file: files[0].name
-                            }));
-                            this.combinedData[fileType] = combinedData;
-
-                            this.combinationLog.push({
-                                fileType,
-                                filesCombined: 1,
-                                fileNames: [files[0].name],
-                                totalRowsBefore: files[0].cleanedSize,
-                                totalRowsAfter: combinedData.length,
-                                allColumns: [...files[0].columns, 'source_file']
+                        // Build master column list - preserve order from first file, then add others
+                        const masterColumns = [];
+                        
+                        files.forEach(file => {
+                            file.columns.forEach(col => {
+                                if (!masterColumns.includes(col)) {
+                                    masterColumns.push(col);
+                                }
                             });
-                        } else {
-                            const allColumns = this.getAllColumns(files);
-                            const combinedRows = [];
+                        });
+                        
+                        // Add source_file at the end
+                        masterColumns.push('source_file');
+                        
+                        // Store column order for CSV export
+                        this.columnOrder[fileType] = masterColumns;
+                        
+                        const combinedRows = [];
 
-                            files.forEach(file => {
-                                file.data.forEach(row => {
-                                    const newRow = {};
-                                    allColumns.forEach(col => {
-                                        newRow[col] = row[col] || '';
-                                    });
-                                    newRow.source_file = file.name;
-                                    combinedRows.push(newRow);
+                        // Process each file
+                        files.forEach(file => {
+                            file.data.forEach(row => {
+                                // Create new row as array first for proper ordering
+                                const newRowArray = masterColumns.map(col => {
+                                    if (col === 'source_file') {
+                                        return file.name;
+                                    }
+                                    const value = row[col];
+                                    // Keep value as-is, only convert null/undefined to empty
+                                    return (value === null || value === undefined) ? '' : value;
                                 });
+                                
+                                // Convert to object with guaranteed order
+                                const newRow = {};
+                                masterColumns.forEach((col, idx) => {
+                                    newRow[col] = newRowArray[idx];
+                                });
+                                
+                                combinedRows.push(newRow);
                             });
+                        });
 
-                            this.combinedData[fileType] = combinedRows;
+                        this.combinedData[fileType] = combinedRows;
 
-                            this.combinationLog.push({
-                                fileType,
-                                filesCombined: files.length,
-                                fileNames: files.map(f => f.name),
-                                totalRowsBefore: files.reduce((sum, f) => sum + f.cleanedSize, 0),
-                                totalRowsAfter: combinedRows.length,
-                                allColumns: [...allColumns, 'source_file'],
-                                commonColumns: this.getCommonColumns(files)
-                            });
-                        }
+                        this.combinationLog.push({
+                            fileType,
+                            filesCombined: files.length,
+                            fileNames: files.map(f => f.name),
+                            totalRowsBefore: files.reduce((sum, f) => sum + f.cleanedSize, 0),
+                            totalRowsAfter: combinedRows.length,
+                            allColumns: masterColumns,
+                            commonColumns: this.getCommonColumns(files),
+                            blankRowsRemoved: files.reduce((sum, f) => sum + (f.blankRowsRemoved || 0), 0)
+                        });
                     });
 
                     this.displayCombinationResults();
@@ -1009,6 +1141,10 @@
                 let summaryHTML = '';
 
                 this.combinationLog.forEach(log => {
+                    const blankRowsNote = log.blankRowsRemoved > 0 
+                        ? `<br><span style="color: #28a745;">✓ ${log.blankRowsRemoved} leading blank row(s) were deleted during processing</span>` 
+                        : '';
+                    
                     summaryHTML += `
                         <div class="success-message">
                             <strong>${log.fileType} Files Combined</strong><br>
@@ -1018,6 +1154,7 @@
                             <strong>Total Unique Columns:</strong> ${log.allColumns.length - 1}<br>
                             <strong>Rows:</strong> ${log.totalRowsBefore} → ${log.totalRowsAfter}<br>
                             <strong>Final Columns (including source_file):</strong> ${log.allColumns.length}
+                            ${blankRowsNote}
                         </div>
                         <div class="expandable">
                             <div class="expandable-header" onclick="this.parentElement.classList.toggle('open')">
@@ -1083,32 +1220,59 @@
             downloadCombinedData() {
                 if (!this.combinedData) return;
 
-                let finalData;
                 const fileTypes = Object.keys(this.combinedData);
+                let csvContent = '';
+                let filename = '';
 
                 if (fileTypes.length === 1) {
-                    finalData = this.combinedData[fileTypes[0]];
+                    const fileType = fileTypes[0];
+                    const data = this.combinedData[fileType];
+                    const columns = this.columnOrder[fileType];
+                    csvContent = this.convertToCSV(data, columns);
+                    
+                    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '').replace('T', '_');
+                    filename = `combined_${fileType.toLowerCase()}_data_${timestamp}.csv`;
                 } else {
-                    finalData = [];
-                    Object.entries(this.combinedData).forEach(([fileType, data]) => {
-                        const dataWithType = data.map(row => ({
-                            ...row,
-                            data_type: fileType
-                        }));
-                        finalData.push(...dataWithType);
+                    // Multiple file types - combine all with data_type column
+                    let allData = [];
+                    let allColumns = [];
+                    
+                    // Get all unique columns across all file types
+                    fileTypes.forEach(fileType => {
+                        this.columnOrder[fileType].forEach(col => {
+                            if (col !== 'source_file' && !allColumns.includes(col)) {
+                                allColumns.push(col);
+                            }
+                        });
                     });
+                    allColumns.push('source_file');
+                    allColumns.push('data_type');
+                    
+                    // Combine data from all types
+                    fileTypes.forEach(fileType => {
+                        this.combinedData[fileType].forEach(row => {
+                            const newRow = {};
+                            allColumns.forEach(col => {
+                                if (col === 'data_type') {
+                                    newRow[col] = fileType;
+                                } else {
+                                    const value = row[col];
+                                    newRow[col] = (value === null || value === undefined) ? '' : value;
+                                }
+                            });
+                            allData.push(newRow);
+                        });
+                    });
+                    
+                    csvContent = this.convertToCSV(allData, allColumns);
+                    
+                    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '').replace('T', '_');
+                    filename = `combined_all_data_${timestamp}.csv`;
                 }
-
-                const csvContent = this.convertToCSV(finalData);
                 
                 const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
                 const link = document.createElement('a');
                 const url = URL.createObjectURL(blob);
-                
-                const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '').replace('T', '_');
-                const filename = fileTypes.length === 1 
-                    ? `combined_${fileTypes[0].toLowerCase()}_data_${timestamp}.csv`
-                    : `combined_all_data_${timestamp}.csv`;
                 
                 link.setAttribute('href', url);
                 link.setAttribute('download', filename);
@@ -1118,24 +1282,108 @@
                 document.body.removeChild(link);
             }
 
-            convertToCSV(data) {
+            convertToCSV(data, columns) {
                 if (!data || data.length === 0) return '';
                 
-                const headers = Object.keys(data[0]);
-                const csvRows = [headers.join(',')];
+                // Use provided column order
+                const headers = columns || Object.keys(data[0]);
                 
+                // Build CSV with proper escaping
+                const csvRows = [];
+                
+                // Add header row
+                csvRows.push(headers.map(h => this.escapeCSVValue(h)).join(','));
+                
+                // Add data rows
                 data.forEach(row => {
                     const values = headers.map(header => {
-                        let value = row[header] || '';
-                        if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
-                            value = '"' + value.replace(/"/g, '""') + '"';
+                        const value = row[header];
+                        // Handle null/undefined as empty, but keep 0 and other values
+                        if (value === null || value === undefined) {
+                            return '';
                         }
-                        return value;
+                        return this.escapeCSVValue(value);
                     });
                     csvRows.push(values.join(','));
                 });
                 
                 return csvRows.join('\n');
+            }
+
+            escapeCSVValue(value) {
+                const str = String(value);
+                // If value contains comma, quote, or newline, wrap in quotes and escape quotes
+                if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+                    return '"' + str.replace(/"/g, '""') + '"';
+                }
+                return str;
+            }
+
+            downloadAsExcel() {
+                if (!this.combinedData) return;
+
+                const fileTypes = Object.keys(this.combinedData);
+                const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '').replace('T', '_');
+                
+                // Create workbook
+                const wb = XLSX.utils.book_new();
+                
+                if (fileTypes.length === 1) {
+                    const fileType = fileTypes[0];
+                    const data = this.combinedData[fileType];
+                    const columns = this.columnOrder[fileType];
+                    
+                    // Create worksheet data with proper column order
+                    const wsData = [columns]; // Header row
+                    data.forEach(row => {
+                        const rowData = columns.map(col => {
+                            const value = row[col];
+                            return (value === null || value === undefined) ? '' : value;
+                        });
+                        wsData.push(rowData);
+                    });
+                    
+                    const ws = XLSX.utils.aoa_to_sheet(wsData);
+                    XLSX.utils.book_append_sheet(wb, ws, 'Combined Data');
+                    
+                    XLSX.writeFile(wb, `combined_${fileType.toLowerCase()}_data_${timestamp}.xlsx`);
+                } else {
+                    // Multiple file types - create separate sheets or one combined sheet
+                    let allData = [];
+                    let allColumns = [];
+                    
+                    // Get all unique columns across all file types
+                    fileTypes.forEach(fileType => {
+                        this.columnOrder[fileType].forEach(col => {
+                            if (col !== 'source_file' && !allColumns.includes(col)) {
+                                allColumns.push(col);
+                            }
+                        });
+                    });
+                    allColumns.push('source_file');
+                    allColumns.push('data_type');
+                    
+                    // Create worksheet data
+                    const wsData = [allColumns]; // Header row
+                    
+                    fileTypes.forEach(fileType => {
+                        this.combinedData[fileType].forEach(row => {
+                            const rowData = allColumns.map(col => {
+                                if (col === 'data_type') {
+                                    return fileType;
+                                }
+                                const value = row[col];
+                                return (value === null || value === undefined) ? '' : value;
+                            });
+                            wsData.push(rowData);
+                        });
+                    });
+                    
+                    const ws = XLSX.utils.aoa_to_sheet(wsData);
+                    XLSX.utils.book_append_sheet(wb, ws, 'Combined Data');
+                    
+                    XLSX.writeFile(wb, `combined_all_data_${timestamp}.xlsx`);
+                }
             }
 
             groupFilesByType() {
@@ -1170,28 +1418,68 @@
             getNumericColumns(data) {
                 if (!data || data.length === 0) return [];
                 
-                const sampleRow = data[0];
-                return Object.keys(sampleRow).filter(key => {
-                    if (key === 'source_file' || key === 'data_type') return false;
-                    const value = sampleRow[key];
-                    return typeof value === 'number' || (!isNaN(value) && !isNaN(parseFloat(value)));
+                const allColumns = Object.keys(data[0]).filter(key => 
+                    key !== 'source_file' && key !== 'data_type'
+                );
+                
+                const numericColumns = [];
+                
+                allColumns.forEach(col => {
+                    let numericCount = 0;
+                    let textCount = 0;
+                    
+                    // Check all rows
+                    for (let i = 0; i < data.length; i++) {
+                        const value = data[i][col];
+                        
+                        // Skip empty, null, undefined values completely
+                        if (value === null || value === undefined) continue;
+                        if (String(value).trim() === '') continue;
+                        
+                        // Check if it's a number
+                        if (typeof value === 'number') {
+                            numericCount++;
+                        } else {
+                            // Try to parse as number
+                            const strValue = String(value).trim();
+                            const parsed = parseFloat(strValue);
+                            
+                            // It's numeric if it parses and the string looks like a number
+                            if (!isNaN(parsed) && /^-?\d*\.?\d+$/.test(strValue)) {
+                                numericCount++;
+                            } else {
+                                textCount++;
+                            }
+                        }
+                        
+                        // Stop after checking 200 rows for performance
+                        if (i >= 200) break;
+                    }
+                    
+                    // Column is numeric if it has numeric values and more numeric than text
+                    if (numericCount > 0 && numericCount >= textCount) {
+                        numericColumns.push(col);
+                    }
                 });
+                
+                return numericColumns;
             }
 
             getCategoricalColumns(data) {
                 if (!data || data.length === 0) return [];
                 
-                const allColumns = Object.keys(data[0]);
-                const numericColumns = this.getNumericColumns(data);
-                return allColumns.filter(col => 
-                    !numericColumns.includes(col) && col !== 'source_file' && col !== 'data_type'
+                const allColumns = Object.keys(data[0]).filter(col => 
+                    col !== 'source_file' && col !== 'data_type'
                 );
+                const numericColumns = this.getNumericColumns(data);
+                return allColumns.filter(col => !numericColumns.includes(col));
             }
 
             resetApplication() {
                 this.filesData = [];
                 this.combinedData = null;
                 this.combinationLog = [];
+                this.columnOrder = {};
                 
                 document.getElementById('fileInput').value = '';
                 document.getElementById('processBtn').disabled = true;
@@ -1202,7 +1490,7 @@
                 this.hideElement('resetBtn');
                 this.showElement('featuresSection');
                 
-                const messages = document.querySelectorAll('.success-message, .error-message, .warning-message');
+                const messages = document.querySelectorAll('.success-message, .error-message, .warning-message, .info-message');
                 messages.forEach(msg => {
                     if (!msg.closest('.expandable-content') && !msg.closest('#combinationSummary')) {
                         msg.remove();

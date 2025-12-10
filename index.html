@@ -659,7 +659,7 @@
                                 <li>All Columns Preserved: Common + uncommon</li>
                                 <li>By File Type: Files grouped by type</li>
                                 <li>Source Tracking: 'source_file' column</li>
-                                <li>Missing Data: Empty values filled</li>
+                                <li>Missing Data: Left empty as-is</li>
                             </ul>
                         </div>
                         <div class="feature-card">
@@ -1093,7 +1093,7 @@
                                 file.data.forEach(row => {
                                     const newRow = {};
                                     allColumns.forEach(col => {
-                                        newRow[col] = row[col] || '';
+                                        newRow[col] = row[col] ?? '';
                                     });
                                     newRow.source_file = file.name;
                                     combinedRows.push(newRow);
